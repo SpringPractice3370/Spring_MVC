@@ -6,6 +6,8 @@ import com.example.querydsl.entity.QTeam;
 import com.example.querydsl.entity.Team;
 import com.querydsl.core.QueryResults;
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import org.assertj.core.api.Assertions;
@@ -23,6 +25,7 @@ import java.util.List;
 
 import static com.example.querydsl.entity.QMember.member;
 import static com.example.querydsl.entity.QTeam.team;
+import static com.querydsl.jpa.JPAExpressions.*;
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
@@ -251,13 +254,16 @@ public class QuerydslBasicTest {
      */
     @Test
     public void join() throws Exception {
-        QMember member = QMember.member;
-        QTeam team = QTeam.team;
         List<Member> result = queryFactory
                 .selectFrom(member)
                 .join(member.team, team)
                 .where(team.name.eq("teamA"))
                 .fetch();
+
+        for (Member member1 : result) {
+            System.out.println("member1 = " + member1);
+        }
+
         assertThat(result)
                 .extracting("username")
                 .containsExactly("member1", "member2");
@@ -276,6 +282,11 @@ public class QuerydslBasicTest {
                 .from(member, team)
                 .where(member.username.eq(team.name))
                 .fetch();
+
+        for (Member member1 : result) {
+            System.out.println("member1 = " + member1);
+        }
+
         assertThat(result)
                 .extracting("username")
                 .containsExactly("teamA", "teamB");
@@ -286,14 +297,18 @@ public class QuerydslBasicTest {
      * JPQL: SELECT m, t FROM Member m LEFT JOIN m.team t on t.name = 'teamA'
      * SQL: SELECT m.*, t.* FROM Member m LEFT JOIN Team t ON m.TEAM_ID=t.id and
      t.name='teamA'
+
+     내부조인 이면 익숙한 where 절로 해결하고, 정말 외부조인이 필요한 경우에만 이 기능을 사용하자
      */
     @Test
     public void join_on_filtering() throws Exception {
         List<Tuple> result = queryFactory
                 .select(member, team)
                 .from(member)
-                .leftJoin(member.team, team).on(team.name.eq("teamA"))
+                .leftJoin(member.team, team)
+                .on(team.name.eq("teamA"))
                 .fetch();
+
         for (Tuple tuple : result) {
             System.out.println("tuple = " + tuple);
         }
@@ -314,8 +329,12 @@ public class QuerydslBasicTest {
                 .from(member)
                 .leftJoin(team).on(member.username.eq(team.name))
                 .fetch();
+
+//        leftJoin(member.team, team) : member1.team as team with member1.username = team.name
+//        leftJoin(team) : Team team with member1.username = team.name
+
         for (Tuple tuple : result) {
-            System.out.println("t=" + tuple);
+            System.out.println("tuple = " + tuple);
         }
     }
 
@@ -327,12 +346,13 @@ public class QuerydslBasicTest {
     public void fetchJoinNo() throws Exception {
         em.flush();
         em.clear();
+
         Member findMember = queryFactory
                 .selectFrom(member)
                 .where(member.username.eq("member1"))
                 .fetchOne();
-        boolean loaded =
-                emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
+
+        boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
         assertThat(loaded).as("페치 조인 미적용").isFalse();
     }
 
@@ -340,14 +360,15 @@ public class QuerydslBasicTest {
     public void fetchJoinUse() throws Exception {
         em.flush();
         em.clear();
+
         Member findMember = queryFactory
                 .selectFrom(member)
                 .join(member.team, team).fetchJoin()
                 .where(member.username.eq("member1"))
                 .fetchOne();
-        boolean loaded =
-                emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
-        assertThat(loaded).as("페치 조인 적용").isTrue();
+
+        boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam());
+        assertThat(loaded).as("페치 조인 미적용").isTrue();
     }
 
     /**
@@ -355,12 +376,13 @@ public class QuerydslBasicTest {
      */
     @Test
     public void subQuery() throws Exception {
+
         QMember memberSub = new QMember("memberSub");
+
         List<Member> result = queryFactory
                 .selectFrom(member)
                 .where(member.age.eq(
-                        JPAExpressions
-                                .select(memberSub.age.max())
+                        select(memberSub.age.max())
                                 .from(memberSub)
                 ))
                 .fetch();
@@ -369,35 +391,36 @@ public class QuerydslBasicTest {
     }
 
     /**
-     * 나이가 평균 나이 이상인 회원
+     * 나이가 평균 이상인 회원
      */
     @Test
     public void subQueryGoe() throws Exception {
+
         QMember memberSub = new QMember("memberSub");
+
         List<Member> result = queryFactory
                 .selectFrom(member)
                 .where(member.age.goe(
-                        JPAExpressions
-                                .select(memberSub.age.avg())
+                        select(memberSub.age.avg())
                                 .from(memberSub)
                 ))
                 .fetch();
         assertThat(result).extracting("age")
-                .containsExactly(30,40);
+                .containsExactly(30, 40);
     }
 
-
     /**
-     * 서브쿼리 여러 건 처리, in 사용
+     * 나이가 10살 이상인 사람
      */
     @Test
     public void subQueryIn() throws Exception {
+
         QMember memberSub = new QMember("memberSub");
+
         List<Member> result = queryFactory
                 .selectFrom(member)
                 .where(member.age.in(
-                        JPAExpressions
-                                .select(memberSub.age)
+                        select(memberSub.age)
                                 .from(memberSub)
                                 .where(memberSub.age.gt(10))
                 ))
@@ -406,4 +429,79 @@ public class QuerydslBasicTest {
                 .containsExactly(20, 30, 40);
     }
 
+    @Test
+    public void selectSubQuery() {
+
+        QMember memberSub = new QMember("memberSub");
+
+        List<Tuple> result = queryFactory
+                .select(member.username,
+                        select(memberSub.age.avg())
+                                .from(memberSub)
+                )
+                .from(member)
+                .fetch();
+
+        for (Tuple tuple : result) {
+            System.out.println("tuple = " + tuple);
+        }
+    }
+
+    @Test
+    public void basicCase() {
+        List<String> result = queryFactory
+                .select(member.age
+                        .when(10).then("열살")
+                        .when(20).then("스무살")
+                        .otherwise("기타")
+                )
+                .from(member)
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    @Test
+    public void complexCase() {
+        List<String> result = queryFactory
+                .select(new CaseBuilder()
+                        .when(member.age.between(0, 20)).then("0~20")
+                        .when(member.age.between(21, 30)).then("21~30")
+                        .otherwise("기타"))
+                .from(member)
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
+
+    @Test
+    public void constant() {
+        List<Tuple> result = queryFactory
+                .select(member.username, Expressions.constant("A"))
+                .from(member)
+                .fetch();
+
+        for (Tuple tuple : result) {
+            System.out.println("tuple = " + tuple);
+        }
+    }
+
+    @Test
+    public void concat() {
+
+        // {username}_{age}
+        List<String> result = queryFactory
+                .select(member.username.concat("_").concat(member.age.stringValue()))
+                .from(member)
+                .where(member.username.eq("member1"))
+                .fetch();
+
+        for (String s : result) {
+            System.out.println("s = " + s);
+        }
+    }
 }
